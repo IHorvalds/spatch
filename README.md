@@ -56,7 +56,7 @@ spatch --files big.patch --output-dir ./out
 git format-patch -1 HEAD | spatch --glob 'arch/**/Makefile' --output-dir ./out
 ```
 
-- Extract newly added files (write file contents) from a patch:
+- Extract the content of newly added files from a patch:
 
 ```
 spatch --files changes.patch --only-new --extract-file --output-dir ./files
