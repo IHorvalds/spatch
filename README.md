@@ -2,8 +2,6 @@
 
 Utility for splitting git patch files into smaller patches, one per each modified file.
 
-![spatch](icon.png)
-
 ## Features
 
 - separate enormous patches into smaller ones
@@ -12,6 +10,7 @@ Utility for splitting git patch files into smaller patches, one per each modifie
 - extract newly added files -- creates the directory structure and writes the file contents
 - read from stdin if `--files` is missing
 - rusty!
+![ferris](ferris-the-crab.svg){height=100}
 
 ## Usage
 
@@ -41,7 +40,7 @@ cargo install --path .
 ## Limitations
 
 - no 3-way patches.
-- the one true "new line" is LF. CRLF is for typewriters.
+- the one true "new line" is LF. CRLF is for typewriters. (/s)
  
 ## Examples
 
