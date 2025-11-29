@@ -1,7 +1,7 @@
 use spatch::diff_parser::{DiffParser, Patch};
 use anyhow;
 use clap::{self, Parser};
-use std::{fs::File, io::{self, Write}, path::PathBuf};
+use std::{fs::File, io::{self, Read, Write}, path::PathBuf};
 
 #[derive(Clone, Debug)]
 enum NewFileProcessing {
@@ -49,8 +49,8 @@ struct Args {
     files: Vec<PathBuf>,
 }
 
-fn should_skip_patch<T: io::Read>(patch: &Patch<T>, filter: &FilterType) -> anyhow::Result<bool> {
-    let res = match filter {
+fn should_skip_patch<T: Sized + Read>(patch: &Patch<T>, filter: &FilterType) -> bool {
+    match filter {
         FilterType::None => false,
         FilterType::Glob(glob) => {
             let matcher = glob.compile_matcher();
@@ -60,25 +60,20 @@ fn should_skip_patch<T: io::Read>(patch: &Patch<T>, filter: &FilterType) -> anyh
             !expr.is_match(patch.new_filename())
         }
         FilterType::OnlyNew(_) => patch.old_filename() != "/dev/null",
-    };
-
-    Ok(res)
+    }
 }
 
-fn split_patch<T: io::Read>(handle: T, filter: &FilterType, patchfile: &String, output_dir: &PathBuf) -> anyhow::Result<()> {
+fn split_patch<T: Sized + Read>(handle: T, filter: &FilterType, patchfile: &String, output_dir: &PathBuf) -> anyhow::Result<()> {
 
-    let mut parser = DiffParser::new(handle);
+    let parser = DiffParser::new(handle);
 
-    while let Some(mut patch) = parser.next_patch() {
-
-        if should_skip_patch(&patch, filter)? {
-            continue;
-        }
-
-        let filename = match filter {
-            FilterType::OnlyNew(NewFileProcessing::ExtractFile) => PathBuf::from(patch.new_filename()),
+    parser
+    .filter(|p| should_skip_patch(p, filter))
+    .map(|p| {
+        let f = match filter {
+            FilterType::OnlyNew(NewFileProcessing::ExtractFile) => PathBuf::from(p.new_filename()),
             _ => {
-                let new_name = patch.new_filename().replace("/", "-");
+                let new_name = p.new_filename().replace("/", "-");
                 PathBuf::from(if patchfile.is_empty() {
                   new_name
                 } else {
@@ -87,19 +82,20 @@ fn split_patch<T: io::Read>(handle: T, filter: &FilterType, patchfile: &String, 
             }
         };
 
-        let full_path = output_dir.join(&filename);
-        let dirname = full_path.parent().ok_or(anyhow::anyhow!("could not find parent of '{}'", full_path.display()))?;
-
+        (output_dir.join(f), p)
+    })
+    .try_for_each(|(f, mut patch)| {
+        let dirname = f.parent().ok_or(anyhow::anyhow!("could not find parent of '{}'", f.display()))?;
         if !dirname.exists() {
             std::fs::create_dir_all(dirname)?;
         }
 
-        let mut f = File::create(full_path)?;
+        let mut file_patch = File::create(f)?;
 
         match filter {
             FilterType::OnlyNew(NewFileProcessing::ExtractFile) => {},
             _ => {
-                f.write_all(patch.header().as_bytes())?
+                file_patch.write_all(patch.header().as_bytes())?
             }
         };
 
@@ -115,11 +111,10 @@ fn split_patch<T: io::Read>(handle: T, filter: &FilterType, patchfile: &String, 
             }
             _ => Some(line)
         })
-        .try_for_each(|line| {
-            f.write_all(format!("{}\n", line).as_bytes())
-        })?;
-    }
-    Ok(())
+        .try_for_each(|line| -> anyhow::Result<()> {
+            file_patch.write_all(format!("{}\n", line).as_bytes()).map_err(|e| anyhow::Error::from(e))
+        })
+    })
 }
 
 fn main() -> anyhow::Result<()> {

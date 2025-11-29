@@ -44,7 +44,7 @@ index 000..111 100644
     let mut dp = DiffParser::new(std::fs::File::open(&p)?) ;
 
     {
-        let mut patch = dp.next_patch().expect("one patch");
+        let mut patch = dp.next().expect("one patch");
         assert!(patch.new_filename().ends_with("a/file.txt"));
 
         let lines: Vec<String> = patch.lines().collect();
@@ -56,7 +56,7 @@ index 000..111 100644
     }
 
     // no more patches
-    assert!(dp.next_patch().is_none());
+    assert!(dp.next().is_none());
     Ok(())
 }
 
@@ -77,7 +77,7 @@ context line
 
     let p = write_tmp("mismatch", content);
     let mut dp = DiffParser::new(std::fs::File::open(&p)?) ;
-    let mut patch = dp.next_patch().expect("patch");
+    let mut patch = dp.next().expect("patch");
     let lines: Vec<String> = patch.lines().collect();
     // current parser respects the hunk count strictly, so only the number of
     // lines reported in the hunk header will be returned. Check that at
@@ -106,7 +106,7 @@ Some random text that is not a git patch
     let p = write_tmp("multi", content);
     let mut dp = DiffParser::new(std::fs::File::open(&p)?) ;
     let mut list = Vec::new();
-    while let Some(patch) = dp.next_patch() {
+    while let Some(patch) = dp.next() {
         list.push(patch.new_filename().to_string());
     }
     assert_eq!(list.len(), 2, "should parse two patches from file");
@@ -114,7 +114,7 @@ Some random text that is not a git patch
     // non-git content with no diff header should yield zero patches
     let p2 = write_tmp("nongit", "This is not a patch\nJust text\n");
     let mut dp2 = DiffParser::new(std::fs::File::open(&p2)?) ;
-    assert!(dp2.next_patch().is_none());
+    assert!(dp2.next().is_none());
 
     Ok(())
 }
@@ -131,7 +131,7 @@ fn test_malformed_hunk_header_does_not_panic() -> anyhow::Result<()> {
 
     let p = write_tmp("malformed", content);
     let mut dp = DiffParser::new(std::fs::File::open(&p)?) ;
-    let mut patch = dp.next_patch().expect("patch present");
+    let mut patch = dp.next().expect("patch present");
     let lines: Vec<String> = patch.lines().collect();
     // header may or may not have been parsed as a hunk header; ensure we
     // did not panic and the iterator completed. Accept either an empty

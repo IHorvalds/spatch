@@ -1,25 +1,28 @@
+use std::cell::RefCell;
 use std::iter::Peekable;
-use std::io::{self, BufRead};
-type PeekableLines<T> = Peekable<io::Lines<io::BufReader<T>>>;
+use std::io::{Read, BufRead, Lines, BufReader};
+use std::rc::Rc;
 
-pub struct DiffParser<T: io::Read> {
+type PeekableLines<T> = Rc<RefCell<Peekable<Lines<BufReader<T>>>>>;
+
+pub struct DiffParser<T: Sized + Read> {
     lines: PeekableLines<T>,
 }
 
 impl<T> DiffParser<T>
 where
-    T: Sized + io::Read,
+    T: Sized + Read,
 {
     pub fn new(handle: T) -> Self {
         DiffParser {
-            lines: io::BufReader::new(handle).lines().peekable(),
+            lines: Rc::new(RefCell::new(BufReader::new(handle).lines().peekable())),
         }
     }
 
-    pub fn next_patch(&mut self) -> Option<Patch<'_, T>> {
+    fn next_patch(&mut self) -> Option<Patch<T>> {
+        let mut lines_iter = self.lines.borrow_mut();
         // Skip to the next "diff" line.
-        let mut iter = self
-            .lines
+        let mut iter = lines_iter
             .by_ref()
             .filter_map(|l| l.ok())
             .skip_while(|l| !l.starts_with("diff "));
@@ -38,27 +41,53 @@ where
         header.push('\n');
 
         let b = new[4..].replacen("b/", "", 1);
-        Some(Patch::new(a, b, header, self))
+
+        drop(lines_iter);
+
+        Some(Patch::new(a, b, header, Rc::new(RefCell::new(self.clone()))))
     }
 }
-pub struct Patch<'a, T: io::Read> {
+
+impl<T> Clone for DiffParser<T>
+where
+    T: Sized + Read
+{
+    fn clone(&self) -> Self {
+        Self {
+            lines: self.lines.clone()
+        }
+    }
+}
+
+impl<T> Iterator for DiffParser<T>
+where 
+    T: Sized + Read
+{
+    type Item = Patch<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_patch()
+    }
+}
+
+pub struct Patch<T: Sized + Read> {
     old_filename: String,
     new_filename: String,
     header: String,
     lines_left: u32,
     p: char,
-    parser: &'a mut DiffParser<T>,
+    parser: Rc<RefCell<DiffParser<T>>>,
 }
 
-impl<'a, T> Patch<'a, T>
+impl<T> Patch<T>
 where
-    T: io::Read,
+    T: Sized + Read,
 {
     pub fn new(
         old_filename: String,
         new_filename: String,
         header: String,
-        parser: &'a mut DiffParser<T>,
+        parser: Rc<RefCell<DiffParser<T>>>,
     ) -> Self {
         Patch {
             old_filename,
@@ -78,7 +107,7 @@ where
         &self.new_filename
     }
 
-    pub fn header(&mut self) -> &str {
+    pub fn header(&self) -> &str {
         &self.header
     }
 
@@ -91,23 +120,25 @@ where
         Some((a.parse::<u32>().ok()?, b.parse::<u32>().ok()?))
     }
 
-    pub fn lines(&'a mut self) -> PatchLines<'a, T> {
+    pub fn lines<'a>(&mut self) -> PatchLines<'_, T> {
         PatchLines { patch: self }
     }
 }
 
-pub struct PatchLines<'a, T: io::Read> {
-    patch: &'a mut Patch<'a, T>,
+pub struct PatchLines<'a, T: Sized + Read> {
+    patch: &'a mut Patch<T>,
 }
 
 impl<'a, T> Iterator for PatchLines<'a, T>
 where
-    T: io::Read,
+    T: Sized + Read,
 {
     type Item = String;
     fn next(&mut self) -> Option<Self::Item> {
+        let parser = self.patch.parser.borrow();
+        let mut lines_iter = parser.lines.borrow_mut();
         if self.patch.lines_left == 0 {
-            let line = match self.patch.parser.lines.peek() {
+            let line = match lines_iter.peek() {
                 Some(Ok(line)) => line,
                 _ => return None,
             };
@@ -119,12 +150,12 @@ where
                     self.patch.lines_left = b;
                     self.patch.p = '+';
                 }
-                return Some(self.patch.parser.lines.next().unwrap().unwrap()); // Consume the hunk header.
+                return Some(lines_iter.next().unwrap().unwrap()); // Consume the hunk header.
             } else {
                 return None;
             }
         }
-        if let Some(line) = self.patch.parser.lines.next() {
+        if let Some(line) = lines_iter.next() {
             let line = match line {
                 Ok(line) => line,
                 Err(_) => return None,
