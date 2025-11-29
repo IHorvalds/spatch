@@ -10,7 +10,7 @@ Utility for splitting git patch files into smaller patches, one per each modifie
 - extract newly added files -- creates the directory structure and writes the file contents
 - read from stdin if `--files` is missing
 - rusty!
-![ferris](ferris-the-crab.svg){height=100}
+<img alt="ferris" src="ferris-the-crab.svg" height=100/>
 
 ## Usage
 
