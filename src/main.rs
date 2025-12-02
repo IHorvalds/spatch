@@ -68,7 +68,7 @@ fn split_patch<T: Sized + Read>(handle: T, filter: &FilterType, patchfile: &Stri
     let parser = DiffParser::new(handle);
 
     parser
-    .filter(|p| should_skip_patch(p, filter))
+    .filter(|p| !should_skip_patch(p, filter))
     .map(|p| {
         let f = match filter {
             FilterType::OnlyNew(NewFileProcessing::ExtractFile) => PathBuf::from(p.new_filename()),
