@@ -1,0 +1,20 @@
+diff --git a/text.txt b/text.txt
+index 111..222 100644
+--- a/text.txt
++++ b/text.txt
+@@ -1,1 +1,1 @@
+-old text
++new text
+
+diff --git a/data.bin b/data.bin
+new file mode 100644
+index 0000000..abc1234
+Binary files /dev/null and b/data.bin differ
+
+diff --git a/another.txt b/another.txt
+index 333..444 100644
+--- a/another.txt
++++ b/another.txt
+@@ -1,1 +1,2 @@
+ line one
++line two

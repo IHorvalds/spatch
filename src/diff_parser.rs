@@ -1,12 +1,23 @@
 use std::cell::RefCell;
+use std::io::{self, BufRead, BufReader, Lines, Read};
 use std::iter::Peekable;
-use std::io::{Read, BufRead, Lines, BufReader};
 use std::rc::Rc;
+
+const GIT_DIFF_PREFIX: &'static str = "diff --git";
+const OLD_FILENAME_PREFIX: &'static str = "--- ";
+const NEW_FILENAME_PREFIX: &'static str = "+++ ";
 
 type PeekableLines<T> = Rc<RefCell<Peekable<Lines<BufReader<T>>>>>;
 
 pub struct DiffParser<T: Sized + Read> {
     lines: PeekableLines<T>,
+}
+
+fn should_break(line: &Result<String, io::Error>) -> bool {
+    match line {
+        Ok(l) => !(l.starts_with(GIT_DIFF_PREFIX) || l.starts_with("@@ -")),
+        _ => false,
+    }
 }
 
 impl<T> DiffParser<T>
@@ -25,43 +36,55 @@ where
         let mut iter = lines_iter
             .by_ref()
             .filter_map(|l| l.ok())
-            .skip_while(|l| !l.starts_with("diff "));
+            .skip_while(|l| !l.starts_with(GIT_DIFF_PREFIX));
 
         // Extract header, old and new filenames.
-        let mut header = String::new();
-        let a = iter.find(|line| {
+        let mut header = iter.next()? + "\n";
+        let mut old_filename = String::new();
+        let mut new_filename = String::new();
+        while let Some(Ok(line)) = lines_iter.next_if(should_break) {
+            if line.starts_with(OLD_FILENAME_PREFIX) {
+                old_filename = line[4..].trim().replacen("a/", "", 1);
+            } else if line.starts_with(NEW_FILENAME_PREFIX) {
+                new_filename = line[4..].trim().replacen("b/", "", 1);
+            } else if let Some((a, b)) = line
+                .strip_prefix("Binary files ")
+                .and_then(|s| s.strip_suffix(" differ"))
+                .and_then(|s| s.split_once(" and "))
+            {
+                old_filename = a.trim().replacen("a/", "", 1);
+                new_filename = b.trim().replacen("b/", "", 1);
+            }
+
             header.push_str(line.as_str());
             header.push('\n');
-            line.starts_with("--- ")
-        })?[4..]
-            .replacen("a/", "", 1);
-
-        let new = iter.next()?;
-        header.push_str(new.as_str());
-        header.push('\n');
-
-        let b = new[4..].replacen("b/", "", 1);
+        }
 
         drop(lines_iter);
 
-        Some(Patch::new(a, b, header, Rc::new(RefCell::new(self.clone()))))
+        Some(Patch::new(
+            old_filename,
+            new_filename,
+            header,
+            Rc::new(RefCell::new(self.clone())),
+        ))
     }
 }
 
 impl<T> Clone for DiffParser<T>
 where
-    T: Sized + Read
+    T: Sized + Read,
 {
     fn clone(&self) -> Self {
         Self {
-            lines: self.lines.clone()
+            lines: self.lines.clone(),
         }
     }
 }
 
 impl<T> Iterator for DiffParser<T>
-where 
-    T: Sized + Read
+where
+    T: Sized + Read,
 {
     type Item = Patch<T>;
 
@@ -169,4 +192,3 @@ where
         }
     }
 }
-

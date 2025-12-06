@@ -1,0 +1,18 @@
+From 000000 Mon Sep 17 00:00:00 2001
+From: somebody <s@example.org>
+Subject: [PATCH] simple
+
+---
+ a/file.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/a/file.txt b/a/file.txt
+index 000..111 100644
+--- a/a/file.txt
++++ b/a/file.txt
+@@ -1,2 +1,2 @@
+ line1
+-old
++new
+--
+2.25.1

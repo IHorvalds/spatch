@@ -1,0 +1,13 @@
+diff --git a/one b/one
+--- a/one
++++ b/one
+@@ -0,0 +1,1 @@
++one
+
+diff --git a/two b/two
+--- a/two
++++ b/two
+@@ -0,0 +1,1 @@
++two
+
+Some random text that is not a git patch

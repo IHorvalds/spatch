@@ -1,0 +1,10 @@
+From 111 Mon Sep 17 00:00:00 2001
+Subject: [PATCH]
+
+---
+diff --git a/x b/x
+--- a/x
++++ b/x
+@@ -1,1 +1,1 @@
+context line
++added line
