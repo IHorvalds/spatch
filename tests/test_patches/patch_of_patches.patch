@@ -1,0 +1,48 @@
+diff --git a/patches/fix-bug-123.patch b/patches/fix-bug-123.patch
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/patches/fix-bug-123.patch
+@@ -0,0 +1,11 @@
++diff --git a/src/main.rs b/src/main.rs
++index abc123..def456 100644
++--- a/src/main.rs
+++++ b/src/main.rs
++@@ -10,7 +10,7 @@ fn main() {
++     println!("Hello, world!");
++-    let x = 42;
+++    let x = 43;
++     println!("x = {}", x);
++ }
++
+
+diff --git a/patches/add-feature-xyz.patch b/patches/add-feature-xyz.patch
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/patches/add-feature-xyz.patch
+@@ -0,0 +1,10 @@
++diff --git a/src/feature.rs b/src/feature.rs
++new file mode 100644
++index 0000000..3333333
++--- /dev/null
+++++ b/src/feature.rs
++@@ -0,0 +1,5 @@
+++pub fn new_feature() {
+++    println!("New feature!");
+++}
++
+
+diff --git a/patches/update-readme.patch b/patches/update-readme.patch
+index 4444444..5555555 100644
+--- a/patches/update-readme.patch
++++ b/patches/update-readme.patch
+@@ -1,7 +1,7 @@
+ diff --git a/README.md b/README.md
+ index old123..new456 100644
+ --- a/README.md
+ +++ b/README.md
+ @@ -1,2 +1,2 @@
+  # Project Title
+--Old description
+++New description
