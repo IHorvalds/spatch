@@ -22,27 +22,36 @@ enum FilterType {
     None,
 }
 
+#[derive(Clone, Debug, clap::Args)]
+#[group(multiple = false)]
+struct AddedRemovedGroup {
+    #[arg(long, short = 'n', help = "Only extract patches for newly added files")]
+    #[arg(default_value_t = false)]
+    #[arg(group = "added_removed")]
+    only_new: bool,
+
+    #[arg(long, short = 'r', help = "Only extract patches for removed files")]
+    #[arg(default_value_t = false)]
+    #[arg(group = "added_removed")]
+    only_removed: bool,
+}
+
 #[derive(Clone, Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     #[arg(long, short, help = "Output directory for split patches")]
     output_dir: Option<PathBuf>,
 
-    #[arg(long, short = 'n', help = "Only extract patches for newly added files")]
-    #[arg(default_value_t = false)]
-    only_new: bool,
-
-    #[arg(long, short = 'r', help = "Only extract patches for newly added files")]
-    #[arg(default_value_t = false)]
-    only_removed: bool,
+    #[clap(flatten)]
+    added_removed: AddedRemovedGroup,
 
     #[arg(
         long,
         short = 'x',
-        help = "Extract new files contents rather than patches"
+        help = "Extract files contents rather than patches (requires either -n or -r)"
     )]
     #[arg(default_value_t = false)]
-    #[arg(requires = "only_new")]
+    #[arg(requires = "added_removed")]
     extract_file: bool,
 
     #[arg(long, help = "Filter patches by filename regex")]
@@ -164,8 +173,14 @@ fn split_patch<T: Sized + Read>(
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let filter = if args.only_new {
+    let filter = if args.added_removed.only_new {
         FilterType::OnlyNew(if args.extract_file {
+            FileProcessing::ExtractFile
+        } else {
+            FileProcessing::ExtractPatch
+        })
+    } else if args.added_removed.only_new {
+        FilterType::OnlyRemoved(if args.extract_file {
             FileProcessing::ExtractFile
         } else {
             FileProcessing::ExtractPatch

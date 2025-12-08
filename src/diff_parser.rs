@@ -3,9 +3,7 @@ use std::io::{self, BufRead, BufReader, Lines, Read};
 use std::iter::Peekable;
 use std::rc::Rc;
 
-const GIT_DIFF_PREFIX: &'static str = "diff --git";
-const OLD_FILENAME_PREFIX: &'static str = "--- ";
-const NEW_FILENAME_PREFIX: &'static str = "+++ ";
+const GIT_DIFF_PREFIX: &'static str = "diff --git ";
 
 type PeekableLines<T> = Rc<RefCell<Peekable<Lines<BufReader<T>>>>>;
 
@@ -32,21 +30,31 @@ where
             .skip_while(|l| !l.starts_with(GIT_DIFF_PREFIX));
 
         // Extract header, old and new filenames.
-        let mut header = iter.next()? + "\n";
-        let mut old_filename = None;
-        let mut new_filename = None;
+        let mut header = iter.next()?;
+        let mut old_filename;
+        let mut new_filename;
+        match header.strip_prefix(GIT_DIFF_PREFIX)?.split_once(" ") {
+            Some((a, b)) => {
+                old_filename = Self::filename(&a.to_string().replacen("a/", "", 1));
+                new_filename = Self::filename(&b.to_string().replacen("b/", "", 1));
+            }
+            None => return None,
+        };
+
+        header += "\n";
+
         while let Some(Ok(line)) = lines_iter.next_if(Self::should_break) {
-            if line.starts_with(OLD_FILENAME_PREFIX) {
-                old_filename = Self::filename(&line[4..].trim().replacen("a/", "", 1));
-            } else if line.starts_with(NEW_FILENAME_PREFIX) {
-                new_filename = Self::filename(&line[4..].trim().replacen("b/", "", 1));
+            if line.starts_with("--- ") {
+                old_filename = Self::filename(&line[4..].replacen("a/", "", 1));
+            } else if line.starts_with("+++ ") {
+                new_filename = Self::filename(&line[4..].replacen("b/", "", 1));
             } else if let Some((a, b)) = line
                 .strip_prefix("Binary files ")
                 .and_then(|s| s.strip_suffix(" differ"))
                 .and_then(|s| s.split_once(" and "))
             {
-                old_filename = Self::filename(&a.trim().replacen("a/", "", 1));
-                new_filename = Self::filename(&b.trim().replacen("b/", "", 1));
+                old_filename = Self::filename(&a.replacen("a/", "", 1));
+                new_filename = Self::filename(&b.replacen("b/", "", 1));
             }
 
             header.push_str(line.as_str());
@@ -72,7 +80,18 @@ where
 
     fn filename(f: &String) -> Option<String> {
         if f != "/dev/null" {
-            Some(f.to_owned())
+            let p = f.trim();
+            let p1 = match p.strip_prefix("../") {
+                Some(path) => path,
+                None => p,
+            };
+            Some(
+                match p1.strip_prefix("./") {
+                    Some(path) => path,
+                    None => p1,
+                }
+                .to_string(),
+            )
         } else {
             None
         }
@@ -146,9 +165,23 @@ where
     ///       |^|   |^| that's what we want
     fn parse_hunk_start(line: &String) -> Option<(u32, u32)> {
         let (mut a, mut b) = line.strip_prefix("@@ -")?.split_once("+")?;
-        a = a.split_once(",")?.1.trim();
-        b = b.split_once(" @@")?.0.split_once(",")?.1;
-        Some((a.parse::<u32>().ok()?, b.parse::<u32>().ok()?))
+        a = a.trim();
+        b = b.trim().split_once(" @@")?.0;
+
+        Some((
+            match a.split_once(",") {
+                Some((_, suff)) => suff,
+                None => a,
+            }
+            .parse::<u32>()
+            .ok()?,
+            match b.split_once(",") {
+                Some((_, suff)) => suff,
+                None => b,
+            }
+            .parse::<u32>()
+            .ok()?,
+        ))
     }
 
     pub fn lines<'a>(&mut self) -> PatchLines<'_, T> {

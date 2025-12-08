@@ -182,13 +182,15 @@ fn test_multiple_binary_diffs() -> anyhow::Result<()> {
     assert!(
         patches
             .iter()
-            .any(|p| p.0.as_ref().unwrap() == p.1.as_ref().unwrap()
+            .any(|p| p.0.as_ref().unwrap_or(&"/dev/null".to_string())
+                == p.1.as_ref().unwrap_or(&"/dev/null".to_string())
                 && *p.1.as_ref().unwrap() == "logo.svg")
     );
     assert!(
-        patches
-            .iter()
-            .any(|p| *p.0.as_ref().unwrap() == "archive.zip" && p.1.as_ref().is_none())
+        patches.iter().any(
+            |p| *p.0.as_ref().unwrap_or(&"/dev/null".to_string()) == "archive.zip"
+                && p.1.as_ref().is_none()
+        )
     );
 
     Ok(())
