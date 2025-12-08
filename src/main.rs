@@ -8,7 +8,7 @@ use std::{
 };
 
 #[derive(Clone, Debug)]
-enum NewFileProcessing {
+enum FileProcessing {
     ExtractPatch,
     ExtractFile,
 }
@@ -17,7 +17,8 @@ enum NewFileProcessing {
 enum FilterType {
     Regex(regex::Regex),
     Glob(globset::Glob),
-    OnlyNew(NewFileProcessing),
+    OnlyNew(FileProcessing),
+    OnlyRemoved(FileProcessing),
     None,
 }
 
@@ -30,6 +31,10 @@ struct Args {
     #[arg(long, short = 'n', help = "Only extract patches for newly added files")]
     #[arg(default_value_t = false)]
     only_new: bool,
+
+    #[arg(long, short = 'r', help = "Only extract patches for newly added files")]
+    #[arg(default_value_t = false)]
+    only_removed: bool,
 
     #[arg(
         long,
@@ -62,10 +67,21 @@ fn should_skip_patch<T: Sized + Read>(patch: &Patch<T>, filter: &FilterType) -> 
         FilterType::None => false,
         FilterType::Glob(glob) => {
             let matcher = glob.compile_matcher();
-            !matcher.is_match(&patch.new_filename())
+            match (patch.old_filename(), patch.old_filename()) {
+                (Some(a), Some(b)) => !(matcher.is_match(a) && matcher.is_match(b)),
+                (Some(a), None) => !matcher.is_match(a),
+                (None, Some(b)) => !matcher.is_match(b),
+                (None, None) => unreachable!(),
+            }
         }
-        FilterType::Regex(expr) => !expr.is_match(patch.new_filename()),
-        FilterType::OnlyNew(_) => patch.old_filename() != "/dev/null",
+        FilterType::Regex(expr) => match (patch.old_filename(), patch.old_filename()) {
+            (Some(a), Some(b)) => !(expr.is_match(a) && expr.is_match(b)),
+            (Some(a), None) => !expr.is_match(a),
+            (None, Some(b)) => !expr.is_match(b),
+            (None, None) => unreachable!(),
+        },
+        FilterType::OnlyNew(_) => patch.old_filename().is_none(),
+        FilterType::OnlyRemoved(_) => patch.new_filename().is_none(),
     }
 }
 
@@ -78,14 +94,27 @@ fn split_patch<T: Sized + Read>(
     let parser = DiffParser::new(handle);
 
     parser
-        .filter(|p| !should_skip_patch(p, filter))
-        .map(|p| {
+        .filter_map(|p| {
+            if should_skip_patch(&p, filter) {
+                return None;
+            }
+
             let f = match filter {
-                FilterType::OnlyNew(NewFileProcessing::ExtractFile) => {
-                    PathBuf::from(p.new_filename())
-                }
+                FilterType::OnlyRemoved(FileProcessing::ExtractFile) => PathBuf::from(
+                    p.old_filename().as_ref()
+                        .expect("(extremely invalid patch) cannot extract removed file because old filename was /dev/null"),
+                ),
+                FilterType::OnlyNew(FileProcessing::ExtractFile) => PathBuf::from(
+                    p.new_filename().as_ref()
+                        .expect("(extremely invalid patch) cannot extract added file because new filename was /dev/null"),
+                ),
                 _ => {
-                    let new_name = p.new_filename().replace("/", "-");
+                    let new_name = match (p.old_filename(), p.new_filename()) {
+                        (_, Some(b)) => b,
+                        (Some(a), _) => a,
+                        _ => unreachable!("(extremely invalid patch) cannot have both old and new filenames /dev/null")
+                    }.replace("/", "-");
+
                     PathBuf::from(if patchfile.is_empty() {
                         new_name
                     } else {
@@ -95,7 +124,7 @@ fn split_patch<T: Sized + Read>(
                 }
             };
 
-            (output_dir.join(f), p)
+            Some((output_dir.join(f), p))
         })
         .try_for_each(|(f, mut patch)| {
             let dirname = f.parent().ok_or(anyhow::anyhow!(
@@ -109,14 +138,14 @@ fn split_patch<T: Sized + Read>(
             let mut file_patch = File::create(f)?;
 
             match filter {
-                FilterType::OnlyNew(NewFileProcessing::ExtractFile) => {}
+                FilterType::OnlyNew(FileProcessing::ExtractFile) => {}
                 _ => file_patch.write_all(patch.header().as_bytes())?,
             };
 
             patch
                 .lines()
                 .filter_map(|line| match filter {
-                    FilterType::OnlyNew(NewFileProcessing::ExtractFile) => {
+                    FilterType::OnlyNew(FileProcessing::ExtractFile) => {
                         if line.starts_with("@@ -") {
                             None
                         } else {
@@ -137,9 +166,9 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let filter = if args.only_new {
         FilterType::OnlyNew(if args.extract_file {
-            NewFileProcessing::ExtractFile
+            FileProcessing::ExtractFile
         } else {
-            NewFileProcessing::ExtractPatch
+            FileProcessing::ExtractPatch
         })
     } else if let Some(glob) = args.glob {
         FilterType::Glob(glob)

@@ -13,13 +13,6 @@ pub struct DiffParser<T: Sized + Read> {
     lines: PeekableLines<T>,
 }
 
-fn should_break(line: &Result<String, io::Error>) -> bool {
-    match line {
-        Ok(l) => !(l.starts_with(GIT_DIFF_PREFIX) || l.starts_with("@@ -")),
-        _ => false,
-    }
-}
-
 impl<T> DiffParser<T>
 where
     T: Sized + Read,
@@ -40,20 +33,20 @@ where
 
         // Extract header, old and new filenames.
         let mut header = iter.next()? + "\n";
-        let mut old_filename = String::new();
-        let mut new_filename = String::new();
-        while let Some(Ok(line)) = lines_iter.next_if(should_break) {
+        let mut old_filename = None;
+        let mut new_filename = None;
+        while let Some(Ok(line)) = lines_iter.next_if(Self::should_break) {
             if line.starts_with(OLD_FILENAME_PREFIX) {
-                old_filename = line[4..].trim().replacen("a/", "", 1);
+                old_filename = Self::filename(&line[4..].trim().replacen("a/", "", 1));
             } else if line.starts_with(NEW_FILENAME_PREFIX) {
-                new_filename = line[4..].trim().replacen("b/", "", 1);
+                new_filename = Self::filename(&line[4..].trim().replacen("b/", "", 1));
             } else if let Some((a, b)) = line
                 .strip_prefix("Binary files ")
                 .and_then(|s| s.strip_suffix(" differ"))
                 .and_then(|s| s.split_once(" and "))
             {
-                old_filename = a.trim().replacen("a/", "", 1);
-                new_filename = b.trim().replacen("b/", "", 1);
+                old_filename = Self::filename(&a.trim().replacen("a/", "", 1));
+                new_filename = Self::filename(&b.trim().replacen("b/", "", 1));
             }
 
             header.push_str(line.as_str());
@@ -68,6 +61,21 @@ where
             header,
             Rc::new(RefCell::new(self.clone())),
         ))
+    }
+
+    fn should_break(line: &Result<String, io::Error>) -> bool {
+        match line {
+            Ok(l) => !(l.starts_with(GIT_DIFF_PREFIX) || l.starts_with("@@ -")),
+            _ => false,
+        }
+    }
+
+    fn filename(f: &String) -> Option<String> {
+        if f != "/dev/null" {
+            Some(f.to_owned())
+        } else {
+            None
+        }
     }
 }
 
@@ -94,8 +102,8 @@ where
 }
 
 pub struct Patch<T: Sized + Read> {
-    old_filename: String,
-    new_filename: String,
+    old_filename: Option<String>,
+    new_filename: Option<String>,
     header: String,
     lines_left: u32,
     p: char,
@@ -107,8 +115,8 @@ where
     T: Sized + Read,
 {
     pub fn new(
-        old_filename: String,
-        new_filename: String,
+        old_filename: Option<String>,
+        new_filename: Option<String>,
         header: String,
         parser: Rc<RefCell<DiffParser<T>>>,
     ) -> Self {
@@ -122,11 +130,11 @@ where
         }
     }
 
-    pub fn old_filename(&self) -> &str {
+    pub fn old_filename(&self) -> &Option<String> {
         &self.old_filename
     }
 
-    pub fn new_filename(&self) -> &str {
+    pub fn new_filename(&self) -> &Option<String> {
         &self.new_filename
     }
 

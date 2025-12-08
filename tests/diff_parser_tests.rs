@@ -17,7 +17,8 @@ fn test_parse_simple_patch_and_footer() -> anyhow::Result<()> {
 
     {
         let mut patch = dp.next().expect("one patch");
-        assert!(patch.new_filename() == "a/file.txt");
+        assert!(patch.new_filename().is_some());
+        assert!(patch.new_filename().as_ref().unwrap() == "a/file.txt");
 
         let lines: Vec<String> = patch.lines().collect();
         // expect header/hunk header and hunk body lines present; footer is not
@@ -56,7 +57,9 @@ fn test_multiple_patches_and_non_git_input() -> anyhow::Result<()> {
     let mut dp = DiffParser::new(std::fs::File::open(&p)?);
     let mut list = Vec::new();
     while let Some(patch) = dp.next() {
-        list.push(patch.new_filename().to_string());
+        let f = patch.new_filename();
+        assert!(f.is_some());
+        list.push(f.to_owned().unwrap());
     }
     assert_eq!(list.len(), 2, "should parse two patches from file");
 
@@ -88,7 +91,7 @@ fn test_binary_diff_simple() -> anyhow::Result<()> {
     let p = test_patch_path("binary_simple");
     let mut dp = DiffParser::new(std::fs::File::open(&p)?);
     let patch = dp.next().expect("binary patch");
-    assert!(patch.new_filename() == "image.png");
+    assert!(patch.new_filename().as_ref().unwrap() == "image.png");
 
     // Binary diffs should have the header but no hunk content
     assert!(patch.header().contains("Binary files"));
@@ -101,7 +104,7 @@ fn test_binary_diff_modified() -> anyhow::Result<()> {
     let p = test_patch_path("binary_modified");
     let mut dp = DiffParser::new(std::fs::File::open(&p)?);
     let patch = dp.next().expect("binary patch");
-    assert!(patch.new_filename() == "photo.jpg");
+    assert!(patch.new_filename().as_ref().unwrap() == "photo.jpg");
 
     assert!(patch.header().contains("Binary files"));
 
@@ -113,8 +116,8 @@ fn test_binary_diff_deleted() -> anyhow::Result<()> {
     let p = test_patch_path("binary_deleted");
     let mut dp = DiffParser::new(std::fs::File::open(&p)?);
     let patch = dp.next().expect("binary patch");
-    assert!(patch.old_filename() == "old_binary.bin");
-    assert!(patch.new_filename() == "/dev/null");
+    assert!(patch.old_filename().as_ref().unwrap() == "old_binary.bin");
+    assert!(patch.new_filename().is_none());
 
     assert!(patch.header().contains("Binary files"));
 
@@ -128,7 +131,7 @@ fn test_mixed_text_and_binary_patches() -> anyhow::Result<()> {
 
     let mut patches = Vec::new();
     while let Some(patch) = dp.next() {
-        patches.push(patch.new_filename().to_string());
+        patches.push(patch.new_filename().as_ref().unwrap().to_string());
     }
 
     assert_eq!(
@@ -148,7 +151,7 @@ fn test_binary_diff_with_mode_change() -> anyhow::Result<()> {
     let p = test_patch_path("binary_mode_change");
     let mut dp = DiffParser::new(std::fs::File::open(&p)?);
     let patch = dp.next().expect("binary patch with mode change");
-    assert!(patch.new_filename() == "script.sh");
+    assert!(patch.new_filename().as_ref().unwrap() == "script.sh");
 
     assert!(patch.header().contains("Binary files"));
 
@@ -162,16 +165,31 @@ fn test_multiple_binary_diffs() -> anyhow::Result<()> {
 
     let mut patches = Vec::new();
     while let Some(patch) = dp.next() {
-        let filename = patch.new_filename().to_string();
-        patches.push(filename);
+        patches.push((
+            patch.old_filename().to_owned(),
+            patch.new_filename().to_owned(),
+        ));
 
         assert!(patch.header().contains("Binary files"));
     }
 
     assert_eq!(patches.len(), 3, "should parse three binary patches");
-    assert!(patches.iter().any(|p| p == "icon.ico"));
-    assert!(patches.iter().any(|p| p == "logo.svg"));
-    assert!(patches.iter().any(|p| p == "/dev/null"));
+    assert!(
+        patches
+            .iter()
+            .any(|p| p.0.is_none() && *p.1.as_ref().unwrap() == "icon.ico")
+    );
+    assert!(
+        patches
+            .iter()
+            .any(|p| p.0.as_ref().unwrap() == p.1.as_ref().unwrap()
+                && *p.1.as_ref().unwrap() == "logo.svg")
+    );
+    assert!(
+        patches
+            .iter()
+            .any(|p| *p.0.as_ref().unwrap() == "archive.zip" && p.1.as_ref().is_none())
+    );
 
     Ok(())
 }
@@ -184,7 +202,7 @@ fn test_patch_of_patch_files() -> anyhow::Result<()> {
 
     let mut patches = Vec::new();
     while let Some(mut patch) = dp.next() {
-        let filename = patch.new_filename().to_string();
+        let filename = patch.new_filename().as_ref().unwrap().to_string();
         let header = patch.header().to_string();
         let lines: Vec<String> = patch.lines().collect();
         patches.push((filename, header, lines));
@@ -204,15 +222,21 @@ fn test_patch_of_patch_files() -> anyhow::Result<()> {
 
     // Verify the correct patch files were detected
     assert!(
-        patches.iter().any(|(f, _, _)| f == "patches/fix-bug-123.patch"),
+        patches
+            .iter()
+            .any(|(f, _, _)| f == "patches/fix-bug-123.patch"),
         "should find fix-bug-123.patch"
     );
     assert!(
-        patches.iter().any(|(f, _, _)| f == "patches/add-feature-xyz.patch"),
+        patches
+            .iter()
+            .any(|(f, _, _)| f == "patches/add-feature-xyz.patch"),
         "should find add-feature-xyz.patch"
     );
     assert!(
-        patches.iter().any(|(f, _, _)| f == "patches/update-readme.patch"),
+        patches
+            .iter()
+            .any(|(f, _, _)| f == "patches/update-readme.patch"),
         "should find update-readme.patch"
     );
 
@@ -236,7 +260,10 @@ fn test_patch_of_patch_files() -> anyhow::Result<()> {
 
     // Check for nested diff markers in the content (they appear as added lines)
     assert!(
-        fix_bug_patch.2.iter().any(|l| l.contains("diff --git a/src/main.rs")),
+        fix_bug_patch
+            .2
+            .iter()
+            .any(|l| l.contains("diff --git a/src/main.rs")),
         "should contain nested diff marker for main.rs"
     );
     assert!(
@@ -250,11 +277,17 @@ fn test_patch_of_patch_files() -> anyhow::Result<()> {
         .expect("add-feature-xyz.patch should exist");
 
     assert!(
-        feature_patch.2.iter().any(|l| l.contains("diff --git a/src/feature.rs")),
+        feature_patch
+            .2
+            .iter()
+            .any(|l| l.contains("diff --git a/src/feature.rs")),
         "should contain nested diff marker for feature.rs"
     );
     assert!(
-        feature_patch.2.iter().any(|l| l.contains("pub fn new_feature()")),
+        feature_patch
+            .2
+            .iter()
+            .any(|l| l.contains("pub fn new_feature()")),
         "should contain function definition from nested patch"
     );
 
